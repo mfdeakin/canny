@@ -1,0 +1,3 @@
+
+canny: canny.c
+	$(CC) $(CFLAGS) $(LIBS) canny.c
