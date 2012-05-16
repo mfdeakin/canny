@@ -1,7 +1,7 @@
 (insert (format "%d" 3))
 
 (defun gauss (x y variance)
-  (/ (exp (- (/ (float (+ (* x x) (* y y))) (* 2 variance)))) (sqrt (* variance))))
+  (/ (exp (- (/ (float (+ (* x x) (* y y))) (* 2 variance)))) (sqrt (* 2 pi variance))))
 
 (defun gaussian (xd yd variance)
   (let ((x (truncate (- (/ xd 2)))) (i 0))
@@ -20,6 +20,18 @@
     (delete-char -2)
     (insert "};")))
 
+(defun gsum (xd yd variance)
+  (let ((sum 0) (x (truncate (- (/ xd 2)))) (i 0))
+    (while (< i xd)
+      (let ((y (truncate (- (/ yd 2)))) (j 0))
+	(while (< j yd)
+	  (setq sum (+ sum (gauss x y variance)))
+	  (setq j (1+ j))
+	  (setq y (1+ y)))
+	(setq i (1+ i))
+	(setq x (1+ x))))
+    sum))
+
 (defun gaussian-tbl (x-min x-max y-min y-max var-min var-max)
   (let ((var var-min))
     (while (<= var var-max)
@@ -27,10 +39,9 @@
 	(while (<= x x-max)
 	  (let ((y y-min))
 	    (while (<= y y-max)
-	      (progn
-		(gaussian x y var)
-		(insert "\n\n")
-		(setq y (+ y 2))))
+	      (gaussian x y var)
+	      (insert (format "\nfloat gsum%d_%d_%d = %.8f;\n\n" var x y (gsum x y var)))
+	      (setq y (+ y 2)))
 	    (setq x (+ x 2))))
 	(setq var (1+ var))))))
 

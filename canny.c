@@ -1,62 +1,33 @@
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <GL/gl.h>
-#include <GL/glut.h>
-#include "gaussian.h"
-
-#define BLURMTX g16_7_7
-#define BLURMTX_W 7
-#define BLURMTX_H 7
-#define PI 3.14159265358979323846264338327950288
-
-struct __attribute__((packed)) bmpHead
-{
-	unsigned short signature;
-	unsigned size_ignore;
-	unsigned res;
-	unsigned offset;
-	unsigned headsize;
-	unsigned width;
-	unsigned height;
-	unsigned short planes;
-	unsigned short bpp;
-	unsigned compression;
-	unsigned size;
-	unsigned hres;
-	unsigned vres;
-	unsigned colorcount;
-	unsigned impcolorcount;
-};
-
-struct bitmap
-{
-	struct bmpHead header;
-	unsigned char *image;
-	float *grayscale;
-	float *blur;
-} bmp;
-
-void renderScene(void);
-int readBmp(char *file);
-void createGrayscale();
-void createGaussian();
-int initDisp(int *argc, char **argv, void (*func)(void), unsigned width, unsigned height);
+#include "canny.h"
 
 int main(int argc, char **argv)
 {
 	int ret = 0;
 	ret = readBmp(argv[1]);
 	if(ret) {
-		printf("Error reading bitmap");
+		printf("Error reading bitmap. Error Code %d\n", ret);
 		return ret;
 	}
-	ret = initDisp(&argc, argv, &renderScene, 2 * bmp.header.width, bmp.header.height);
+	ret = initDisp(&argc, argv, &renderScene, 5 * bmp.header.width,
+				   bmp.header.height);
 	if(ret) {
 		printf("Error Initializing the Display");
 		return ret;
 	}
+	struct timespec ts[9];
+	clock_gettime(CLOCK_MONOTONIC, &ts[0]);
 	createGrayscale();
+	clock_gettime(CLOCK_MONOTONIC, &ts[1]);
+	createGaussian();
+	clock_gettime(CLOCK_MONOTONIC, &ts[2]);
+	calcSobel();
+	clock_gettime(CLOCK_MONOTONIC, &ts[3]);
+	calcPrewitt();
+	clock_gettime(CLOCK_MONOTONIC, &ts[4]);
+	int i;
+	for(i = 0; i < 5; i++)
+		printf("Nanoseconds: %ld\n", ts[i].tv_nsec);
 	glutMainLoop();
 	return 0;
 }
@@ -73,26 +44,105 @@ void renderScene(void)
 	glWindowPos2s(bmp.header.width, 0);
 	glDrawPixels(bmp.header.width, bmp.header.height,
 				 GL_LUMINANCE, GL_FLOAT, bmp.grayscale);
+	glWindowPos2s(2 * bmp.header.width, 0);
+	glDrawPixels(bmp.header.width, bmp.header.height,
+				 GL_LUMINANCE, GL_FLOAT, bmp.blur);
+	glWindowPos2s(3 * bmp.header.width, 0);
+	glDrawPixels(bmp.header.width, bmp.header.height,
+				 GL_LUMINANCE, GL_FLOAT, bmp.sobel);
+	glWindowPos2s(4 * bmp.header.width, 0);
+	glDrawPixels(bmp.header.width, bmp.header.height,
+				 GL_LUMINANCE, GL_FLOAT, bmp.prewitt);
 	glFlush();
 	glutSwapBuffers();
+}
+
+void calcSobel()
+{
+	if(!bmp.blur)
+		return;
+	int i;
+	bmp.sobel = malloc(bmp.header.size);
+	memset(bmp.sobel, 0, bmp.header.size);
+	for(i = 1; i < bmp.header.height - 1; i++) {
+		int j;
+		for(j = 1; j < bmp.header.width - 1; j++) {
+			float buf[3][3];
+			buf[0][0] = bmp.blur[(i - 1) * bmp.header.width + j - 1];
+			buf[0][1] = bmp.blur[(i - 1) * bmp.header.width + j];
+			buf[0][2] = bmp.blur[(i - 1) * bmp.header.width + j + 1];
+			buf[1][0] = bmp.blur[i * bmp.header.width + j - 1];
+			buf[1][1] = bmp.blur[i * bmp.header.width + j];
+			buf[1][2] = bmp.blur[i * bmp.header.width + j + 1];
+			buf[2][0] = bmp.blur[(i + 1) * bmp.header.width + j - 1];
+			buf[2][1] = bmp.blur[(i + 1) * bmp.header.width + j];
+			buf[2][2] = bmp.blur[(i + 1) * bmp.header.width + j + 1];
+			float gx = -buf[0][0] - 2 * buf[1][0] - buf[2][0] + buf[0][2] + 2 * buf[1][2] + buf[2][2];
+			float gy = buf[0][0] + 2 * buf[0][1] + buf[0][2] - buf[2][0] - 2 * buf[2][1] - buf[2][2];
+			bmp.sobel[i * bmp.header.width + j] = sqrt(gx * gx + gy * gy);
+		}
+	}
+}
+
+void calcPrewitt()
+{
+	if(!bmp.blur)
+		return;
+	int i;
+	bmp.prewitt = malloc(bmp.header.size);
+	memset(bmp.prewitt, 0, bmp.header.size);
+	for(i = 1; i < bmp.header.height - 1; i++) {
+		int j;
+		for(j = 1; j < bmp.header.width - 1; j++) {
+			float buf[3][3];
+			buf[0][0] = bmp.blur[(i - 1) * bmp.header.width + j - 1];
+			buf[0][1] = bmp.blur[(i - 1) * bmp.header.width + j];
+			buf[0][2] = bmp.blur[(i - 1) * bmp.header.width + j + 1];
+			buf[1][0] = bmp.blur[i * bmp.header.width + j - 1];
+			buf[1][1] = bmp.blur[i * bmp.header.width + j];
+			buf[1][2] = bmp.blur[i * bmp.header.width + j + 1];
+			buf[2][0] = bmp.blur[(i + 1) * bmp.header.width + j - 1];
+			buf[2][1] = bmp.blur[(i + 1) * bmp.header.width + j];
+			buf[2][2] = bmp.blur[(i + 1) * bmp.header.width + j + 1];
+			float gx = -buf[0][0] - buf[1][0] - buf[2][0] + buf[0][2] + buf[1][2] + buf[2][2];
+			float gy = buf[0][0] + buf[0][1] + buf[0][2] - buf[2][0] - buf[2][1] - buf[2][2];
+			bmp.prewitt[i * bmp.header.width + j] = sqrt(gx * gx + gy * gy);
+		}
+	}
 }
 
 void createGaussian()
 {
 	if(!bmp.grayscale)
 		return;
-	bmp.blur = malloc(sizeof(bmp.header.size));
+	bmp.blur = malloc(bmp.header.size);
 	int i;
 	for(i = 0; i < bmp.header.height; i++) {
 		int j;
 		for(j = 0; j < bmp.header.width; j++) {
-			int k;
-			int maxw = ((BLURMTX_W - i) < (BLURMTX_W / 2)) ? (BLURMTX_W - i) : (BLURMTX_W / 2);
-			int minw = i < (BLURMTX_W / 2) ? -i : (-BLURMTX_W / 2);
-			for(int k = minw; k < maxw; k++) {
-			}
+			bmp.blur[i * bmp.header.width + j] = blur(j, i, &bmp);
 		}
 	}
+}
+
+float blur(int x, int y, struct bitmap *pic)
+{
+	int i;
+	float blurval = 0;
+	for(i = 0; i < BLURMTX_H; i++) {
+		int j;
+		for(j = 0; j < BLURMTX_W; j++) {
+			int gx = x + j - BLURMTX_W / 2;
+			int gy = y + i - BLURMTX_H / 2;
+			if(gx < 0 || gx >= pic->header.width ||
+			   gy < 0 || gy >= pic->header.height)
+				blurval += pic->average_l * BLURMTX[i][j];
+			else
+				blurval += pic->grayscale[gy * pic->header.width + gx] *
+					BLURMTX[i][j];
+		}
+	}
+	return blurval / BLURMTX_DIV;
 }
 
 void createGrayscale()
@@ -102,15 +152,20 @@ void createGrayscale()
 	bmp.grayscale = malloc(bmp.header.size);
 	float buf[4];
 	int i;
-	for(i = 0; i < bmp.header.size / 4; i++) {
-		buf[0] = bmp.image[i * 4];
-		buf[1] = bmp.image[i * 4 + 1];
-		buf[2] = bmp.image[i * 4 + 2];
-		buf[0] /= 255.0f;
-		buf[1] /= 255.0f;
-		buf[2] /= 255.0f;
-		bmp.grayscale[i] = 0.299f * buf[0] + 0.587f * buf[1] + 0.114f * buf[2];
+	bmp.average_l = 0;
+	for(i = 0; i < bmp.header.size / sizeof(unsigned); i++) {
+		/* Red */
+		buf[0] = bmp.image[i * sizeof(unsigned)];
+		/* Green */
+		buf[1] = bmp.image[i * sizeof(unsigned) + 1];
+		/* Blue */
+		buf[2] = bmp.image[i * sizeof(unsigned) + 2];
+		bmp.grayscale[i] = LUM_RED * buf[0] + LUM_GREEN * buf[1] + LUM_BLUE * buf[2];
+		/* Don't forget to normalize the luminosity! */
+		bmp.grayscale[i] /= 255.0f;
+		bmp.average_l += bmp.grayscale[i];
 	}
+	bmp.average_l /= bmp.header.size / sizeof(unsigned);
 }
 
 int initDisp(int *argc, char **argv, void (*func)(void), unsigned width, unsigned height)
@@ -135,7 +190,7 @@ int readBmp(char *file)
 	fread(&bmp.header, 1, sizeof(bmp.header), fbmp);
 	if(bmp.header.signature != 0x4d42) {
 		fclose(fbmp);
-		return 1;
+		return 2;
 	}
 	/*	printf("Signature: %x\n"
 		   "Size (Unreliable): %d\n"
@@ -160,7 +215,7 @@ int readBmp(char *file)
 	bmp.image = malloc(bmp.header.size);
 	if(!bmp.image) {
 		fclose(fbmp);
-		return 2;
+		return 3;
 	}
 	fseek(fbmp, bmp.header.offset - sizeof(bmp.header), SEEK_CUR);
 	size_t bytes = fread(bmp.image, 1, bmp.header.size, fbmp);
