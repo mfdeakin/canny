@@ -1,0 +1,9 @@
+Basically just implements a canny edge detector.
+
+Steps
+It reads in a 32 bit color bitmap with a Windows Bitmap Header
+Converts it to grayscale using a luminance calculation
+Applies a Gaussian Blur to it (size and variance of the blur matrix can be changed)
+Applies a modified Sobel gradient (more accurate than vanilla Sobel; about as close to a true gradient operator as possible with square pixels)
+Runs the Canny Algorithm to complete the process.
+All that's left to do is the hard part of the Canny Algorithm, connecting the line segments
